@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hitster - Reproductor con QR</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+        #video {
+            width: 100%;
+            max-width: 400px;
+            margin: 20px auto;
+            border: 2px solid #333;
+            border-radius: 8px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        #nuevoEscan {
+            background-color: #f39c12;
+        }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hitster</h1>
+    <p>Escanea el código QR de una canción</p>
+    
+    <div>
+        <video id="video" width="300" height="200" playsinline></video>
+    </div>
+    
+    <div>
+        <button id="iniciarCamara">Iniciar Cámara</button>
+        <button id="nuevoEscan" style="display:none;">Escanear otro QR</button>
+        <button id="cambiarCamara" style="display:none;">Cambiar Cámara</button>
+    </div>
+    
+    <audio id="reproductor" controls style="margin-top:20px; width:80%; max-width:400px;"></audio>
+    
+    <p id="status">Presiona "Iniciar Cámara" para comenzar</p>
+
+    <!-- Usamos jsQR desde CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.min.js"></script>
+    
+    <script>
+        // Elementos del DOM
+        const video = document.getElementById('video');
+        const reproductor = document.getElementById('reproductor');
+        const iniciarCamaraBtn = document.getElementById('iniciarCamara');
+        const nuevoEscanBtn = document.getElementById('nuevoEscan');
+        const cambiarCamaraBtn = document.getElementById('cambiarCamara');
+        const statusText = document.getElementById('status');
+
+        // Variables de estado
+        let stream = null;
+        let usandoCamaraTrasera = true;
+        let escaneando = false;
+
+        // Event Listeners
+        iniciarCamaraBtn.addEventListener('click', iniciarCamara);
+        nuevoEscanBtn.addEventListener('click', reiniciarEscan);
+        cambiarCamaraBtn.addEventListener('click', cambiarCamara);
+
+        // Función principal para iniciar la cámara
+        async function iniciarCamara() {
+            try {
+                // Detener cámara si ya está en uso
+                if (stream) {
+                    detenerCamara();
+                }
+
+                // Solicitar acceso a la cámara
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: usandoCamaraTrasera ? 'environment' : 'user',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+
+                // Mostrar video
+                video.srcObject = stream;
+                await video.play();
+
+                // Actualizar UI
+                iniciarCamaraBtn.style.display = 'none';
+                nuevoEscanBtn.style.display = 'none';
+                cambiarCamaraBtn.style.display = 'inline-block';
+                statusText.textContent = 'Enfoca un código QR...';
+
+                // Comenzar escaneo
+                escaneando = true;
+                escanearQR();
+
+            } catch (error) {
+                statusText.textContent = 'Error: ' + error.message;
+                console.error('Error al acceder a la cámara:', error);
+            }
+        }
+
+        // Función para escanear códigos QR
+        function escanearQR() {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+
+            function tick() {
+                if (!escaneando) return;
+
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                    const qrCode = jsQR(imageData.data, imageData.width, imageData.height);
+
+                    if (qrCode) {
+                        statusText.textContent = 'Código QR detectado!';
+                        reproducirCancion(qrCode.data);
+                    } else {
+                        requestAnimationFrame(tick);
+                    }
+                } else {
+                    requestAnimationFrame(tick);
+                }
+            }
+
+            tick();
+        }
+
+        // Función para reproducir la canción
+        function reproducirCancion(rutaCancion) {
+            // Detener escaneo
+            escaneando = false;
+            detenerCamara();
+            
+            // Actualizar UI
+            nuevoEscanBtn.style.display = 'inline-block';
+            cambiarCamaraBtn.style.display = 'none';
+            
+            // Reproducir audio
+            reproductor.src = rutaCancion;
+            reproductor.play().catch(e => {
+                statusText.textContent = 'Error al reproducir: ' + e.message;
+            });
+        }
+
+        // Función para reiniciar el escaneo
+        function reiniciarEscan() {
+            reproductor.src = '';
+            statusText.textContent = 'Preparando para escanear...';
+            iniciarCamara();
+        }
+
+        // Función para cambiar entre cámaras
+        function cambiarCamara() {
+            usandoCamaraTrasera = !usandoCamaraTrasera;
+            reiniciarEscan();
+        }
+
+        // Función para detener la cámara
+        function detenerCamara() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                stream = null;
+            }
+        }
+    </script>
+</body>
+</html>
